@@ -3,53 +3,56 @@ from bs4 import BeautifulSoup
 import csv
 import os
 
-def scrape_deep_link(url):
+def the_beast_auto_scanner():
+    # المصدر: قسم المسلسلات التركية (تأكد من الرابط الصحيح للقسم)
+    base_url = "https://k.3sk.media/turkish-series/" 
     scraper = cloudscraper.create_scraper()
     
     try:
-        response = scraper.get(url)
+        print("🔍 جاري تمشيط القسم التركي...")
+        response = scraper.get(base_url)
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # 1. جلب الاسم
-        title = soup.find('h1').text.strip() if soup.find('h1') else "مسلسل تركي"
+        # 1. ابحث عن كل روابط الحلقات في الصفحة الرئيسية للقسم
+        # ملاحظة: نعدل الوسم حسب تصميم الموقع (غالباً ما يكون h2 أو a داخل div محدد)
+        episodes = soup.find_all('article') or soup.find_all('div', class_='item')
 
-        # 2. الغوص في "قلب" الصفحة لجلب رابط المشغل
-        watch_link = ""
-        
-        # البحث عن المشغل في الـ Iframe (هذا هو قلب الفيديو)
-        iframe = soup.find('iframe', src=True)
-        if iframe:
-            watch_link = iframe['src']
-            # إذا كان الرابط يبدأ بـ // نضيف له https:
-            if watch_link.startswith('//'):
-                watch_link = 'https:' + watch_link
-        
-        # إذا لم يجد iframe، يبحث عن روابط السيرفرات في أزرار المشاهدة
-        if not watch_link:
-            server_list = soup.find('ul', class_='video-servers') # كود مشهور في قصة عشق
-            if server_list:
-                first_server = server_list.find('a', href=True)
-                if first_server:
-                    watch_link = first_server['href']
-
-        # 3. حفظ البيانات في الملف بالترتيب المطلوب (اسم ثم رابط)
         file_name = 'database.csv'
-        file_exists = os.path.isfile(file_name)
         
-        with open(file_name, mode='a', newline='', encoding='utf-8') as file:
+        # فتح الملف للمسح والكتابة من جديد ليكون الرابط Raw محدث دائماً
+        with open(file_name, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
-            if not file_exists:
-                writer.writerow(['name', 'url'])
-            
-            if watch_link:
-                writer.writerow([title, watch_link])
-                print(f"✅ تم سحب الرابط من قلب الموقع: {title}")
-            else:
-                print(f"❌ تعذر العثور على المشغل داخل الصفحة")
+            writer.writerow(['name', 'url']) # العناوين
+
+            for ep in episodes[:10]: # سحب آخر 10 حلقات نزلوا
+                link_tag = ep.find('a', href=True)
+                if not link_tag: continue
+                
+                ep_url = link_tag['href']
+                ep_name = link_tag.text.strip() or "حلقة جديدة"
+
+                # 2. الآن ندخل لـ "قلب" كل حلقة لسحب الرابط
+                print(f"📡 فحص حلقة: {ep_name}")
+                inner_res = scraper.get(ep_url)
+                inner_soup = BeautifulSoup(inner_res.content, 'html.parser')
+                
+                watch_link = ""
+                # البحث عن Iframe المشغل
+                iframe = inner_soup.find('iframe', src=True)
+                if iframe:
+                    watch_link = iframe['src']
+                    if watch_link.startswith('//'):
+                        watch_link = 'https:' + watch_link
+                
+                # إضافة البيانات للملف إذا وجدنا رابط
+                if watch_link:
+                    writer.writerow([ep_name, watch_link])
+                    print(f"✅ تم سحب الرابط لـ: {ep_name}")
+
+        print("✨ اكتمل التحديث! ملف database.csv جاهز.")
 
     except Exception as e:
-        print(f"❌ خطأ برمي: {e}")
+        print(f"❌ خطأ أثناء السحب التلقائي: {e}")
 
-# الرابط المستهدف
-target = "https://k.3sk.media/o5p4/"
-scrape_deep_link(target)
+if __name__ == "__main__":
+    the_beast_auto_scanner()
