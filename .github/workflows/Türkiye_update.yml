@@ -1,0 +1,28 @@
+name: Pro Link Guard
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Dependencies
+        run: pip install cloudscraper beautifulsoup4 requests
+      - name: Run Beast
+        run: python the_beast.py
+      - name: Commit Changes
+        run: |
+          git config --global user.name "Link-Checker-Bot"
+          git config --global user.email "bot@github.com"
+          git add database.csv
+          git commit -m "Auto-fix and update links" || exit 0
+          git push
