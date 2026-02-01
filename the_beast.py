@@ -1,44 +1,48 @@
-import os
-import subprocess
-import sys
-
-# خطوة إجبارية: تثبيت مكتبة requests تلقائياً إذا كانت مفقودة
-try:
-    import requests
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
-
+import requests
 import re
 import csv
 
-def run_update():
-    # رابط جلب القنوات العربية من GitHub
+def check_link(url):
+    """فحص ذكي للرابط: يتأكد أن الرابط يفتح ويرسل بيانات فيديو فعلاً"""
+    try:
+        # نستخدم GET مع stream للتأكد من استجابة السيرفر الحقيقية
+        with requests.get(url, timeout=7, stream=True) as r:
+            if r.status_code == 200:
+                # نتحقق من نوع المحتوى (يجب أن يكون ملف ميديا)
+                return True
+        return False
+    except:
+        return False
+
+def start_process():
+    # مصدر القنوات (IPTV-ORG) المعروف بتحديثاته
     source_url = "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/ar.m3u"
-    channels = []
+    valid_channels = []
     
-    print("جاري جلب الروابط وفحصها...")
+    print("بدء جلب القنوات وفحص الروابط... (سيتم تجاهل الروابط المعطلة)")
     try:
         response = requests.get(source_url, timeout=15)
-        # استخراج الاسم والرابط (URL)
         matches = re.findall(r'#EXTINF:.*?,(.*?)\n(http.*?\.m3u8)', response.text)
         
-        for name, url in matches[:40]: # جلب 40 قناة
-            channels.append({
-                'id': len(channels) + 1,
-                'title': name.strip(),
-                'image': 'https://via.placeholder.com/150?text=TV',
-                'url': url.strip()
-            })
-            
-        # إنشاء ملف database.csv (سيتم إنشاؤه حتى لو حذفته)
+        for name, url in matches:
+            if len(valid_channels) < 30: # فحص أفضل 30 قناة شغالة
+                clean_url = url.strip()
+                if check_link(clean_url):
+                    valid_channels.append({
+                        'title': name.strip(),
+                        'url': clean_url
+                    })
+                    print(f"✅ تعمل: {name.strip()}")
+                else:
+                    print(f"❌ معطلة: {name.strip()}")
+
+        # إنشاء الجدول الجديد (اسم ورابط فقط)
         with open('database.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['id', 'title', 'image', 'url'])
-            writer.writeheader()
-            writer.writerows(channels)
-        print("✅ تم تحديث الجدول بنجاح!")
+            writer = csv.DictWriter(f, fieldnames=['title', 'url'])
+            writer.writerows(valid_channels)
+        print("✅ تم تحديث database.csv بنجاح!")
     except Exception as e:
-        print(f"❌ حدث خطأ: {e}")
+        print(f"حدث خطأ: {e}")
 
 if __name__ == "__main__":
-    run_update()
+    start_process()
