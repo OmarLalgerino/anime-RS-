@@ -1,29 +1,36 @@
 name: Auto Update Channels
+
 on:
-  workflow_dispatch: # للتشغيل اليدوي من زر Run
+  workflow_dispatch: # للتشغيل اليدوي
   schedule:
-    - cron: '0 */30 * * *'
+    - cron: '0 * * * *' # سيعمل كل ساعة بالضبط لضمان تحديث الروابط
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # ضروري جداً للسماح للبوت بالكتابة في database.csv
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - name: Install requests
-        run: pip install requests
+
+      - name: Install Dependencies
+        run: |
+          pip install requests cloudscraper feedparser
+
       - name: Run The Beast
-        # تأكد أن الاسم هنا مطابق لملفك في GitHub
+        # تأكد أن ملف السكربت داخل المستودع اسمه: the_beast.py
         run: python the_beast.py 
-      - name: Commit changes
+
+      - name: Commit and Push
         run: |
           git config --local user.name "GitHub Action"
           git config --local user.email "action@github.com"
           git add database.csv
-          git commit -m "Update links and remove images" || exit 0
+          # لن يقوم بعمل Commit إذا لم يتغير شيء في الملف لتجنب الأخطاء
+          git commit -m "تحديث الروابط الرياضية وتدقيق الجودة" || exit 0
           git push
