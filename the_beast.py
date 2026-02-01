@@ -1,9 +1,10 @@
 import feedparser
 import csv
 import requests
+import re
 import os
 
-# مصادر الـ RSS التي طلبتها
+# المصادر التي حددتها أنت
 RSS_SOURCES = [
     "https://nyaa.si/?page=rss",
     "https://www.tokyotosho.info/rss.php"
@@ -11,21 +12,29 @@ RSS_SOURCES = [
 DB_FILE = 'database.csv'
 
 def check_link_health(url):
-    """5 & 6: فحص الرابط وإذا كان معطلاً يتم استبعاده"""
+    """5 & 6: فحص الرابط وإذا كان معطلاً يرجح تحديثه"""
     try:
+        # فحص سريع للرابط
         r = requests.head(url, timeout=5)
         return r.status_code < 400
     except:
         return False
 
-def get_embed_url(torrent_url, info_hash):
-    """تحويل رابط التورنت إلى رابط مشاهدة مباشر (Embed)"""
-    # نستخدم محرك تشغيل تورنت عالمي (مثل webtor أو videospider)
-    # هذا الرابط سيفتح "مشغل فيديو" مباشرة في تطبيقك
-    return f"https://webtor.io/player/embed/{info_hash}"
+def get_embed_streaming(torrent_link):
+    """تحويل التورنت إلى رابط مشغل Embed حقيقي"""
+    # استخراج الـ Hash من الرابط (المعرف الفريد للفيديو)
+    info_hash = ""
+    if 'magnet:?' in torrent_link:
+        match = re.search(r'xt=urn:btih:([a-fA-F0-9]+)', torrent_link)
+        if match: info_hash = match.group(1)
+    
+    if info_hash:
+        # هذا الرابط يفتح "مشغل فيديو" (Player) مباشرة وليس صفحة بحث
+        return f"https://webtor.io/player/embed/{info_hash}"
+    return ""
 
-def start_hunting():
-    # 4: قراءة الروابط القديمة للمحافظة عليها
+def update_db():
+    # 4: قراءة البيانات الموجودة مسبقاً للحفاظ عليها
     database = {}
     if os.path.exists(DB_FILE):
         with open(DB_FILE, 'r', encoding='utf-8') as f:
@@ -33,39 +42,35 @@ def start_hunting():
             for row in reader:
                 database[row['name']] = row
 
-    print("📡 جاري سحب روابط المشاهدة من المصادر...")
+    print("🚀 جاري سحب الروابط من Nyaa و TokyoTosho...")
     
-    for rss_url in RSS_SOURCES:
-        feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:20]: # 3: سحب الجديد
+    for rss in RSS_SOURCES:
+        feed = feedparser.parse(rss)
+        for entry in feed.entries[:25]: # 3: سحب الجديد (25 حلقة من كل مصدر)
             name = entry.title
             torrent_link = entry.link
             
-            # استخراج الـ Hash من رابط التورنت (ضروري للتشغيل)
-            # الـ Hash هو المعرف الوحيد للفيديو في عالم التورنت
-            info_hash = ""
-            if 'magnet:?' in torrent_link:
-                match = re.search(r'xt=urn:btih:([a-fA-F0-9]+)', torrent_link)
-                if match: info_hash = match.group(1)
+            # جلب رابط المشغل المباشر
+            player_url = get_embed_streaming(torrent_link)
             
-            # 1: إعداد جودات متعددة (افتراضية بناءً على المشغل)
-            embed_link = get_embed_url(torrent_link, info_hash)
-            
-            if embed_link and (name not in database or not check_link_health(database[name]['url_1080p'])):
-                # 2: ملء الجدول بالاسم والروابط
-                database[name] = {
-                    'name': name,
-                    'url_1080p': f"{embed_link}?quality=1080",
-                    'url_720p': f"{embed_link}?quality=720",
-                    'url_480p': f"{embed_link}?quality=480"
-                }
-                print(f"✅ تم صيد رابط مشاهدة لـ: {name}")
+            if player_url:
+                # 1 & 2: تنظيم الجدول بجودات متعددة واسم ورابط
+                # 6: تحديث الرابط إذا كان غير موجود أو معطل
+                if name not in database or not check_link_health(database[name]['url_1080p']):
+                    database[name] = {
+                        'name': name,
+                        'url_1080p': f"{player_url}?quality=1080",
+                        'url_720p': f"{player_url}?quality=720",
+                        'url_480p': f"{player_url}?quality=480"
+                    }
 
-    # حفظ كل شيء (القديم والجديد) في ملف واحد
+    # حفظ الجدول النهائي (القديم + الجديد)
     with open(DB_FILE, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['name', 'url_1080p', 'url_720p', 'url_480p'])
+        fieldnames = ['name', 'url_1080p', 'url_720p', 'url_480p']
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(database.values())
+    print(f"✨ تم تحديث {len(database)} حلقة بنجاح!")
 
 if __name__ == "__main__":
-    start_hunting()
+    update_db()
