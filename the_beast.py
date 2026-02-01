@@ -3,23 +3,45 @@ import csv
 import requests
 import re
 import cloudscraper
+import os
 
-# المصادر المحدثة لتشمل Nyaa و TokyoTosho مع البحث عن الترجمة العربية والجودات
 SOURCES = [
     "https://nyaa.si/?page=rss&q=Arabic+1080p",
     "https://nyaa.si/?page=rss&q=Arabic+720p",
     "https://nyaa.si/?page=rss&q=Arabic+480p",
-    "https://www.tokyotosho.info/rss.php?filter=1,11&z=Arabic" # رابط TokyoTosho للبحث عن الأنمي المترجم عربياً
+    "https://www.tokyotosho.info/rss.php?filter=1,11&z=Arabic"
 ]
-DB_FILE = 'database.csv'
+
+MAX_ROWS = 10000  # الحد الأقصى للأسطر في كل ملف
+
+def get_current_db_file():
+    """البحث عن آخر ملف متاح أو إنشاء واحد جديد"""
+    i = 0
+    while True:
+        filename = f'database_{i}.csv' if i > 0 else 'database.csv'
+        if not os.path.exists(filename):
+            return filename
+        
+        # التأكد من عدد الأسطر في الملف الحالي
+        with open(filename, 'r', encoding='utf-8') as f:
+            row_count = sum(1 for row in f)
+        
+        if row_count < MAX_ROWS:
+            return filename
+        i += 1
+
+def clean_and_translate(text):
+    clean_text = re.sub(r'\[.*?\]|\(.*?\)|1080p|720p|480p|HEVC|x264|x265|AAC', '', text).strip()
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ar&dt=t&q={requests.utils.quote(clean_text)}"
+        res = requests.get(url, timeout=5)
+        return res.json()[0][0][0]
+    except:
+        return clean_text
 
 def get_clean_hash_link(entry):
-    """استخراج الـ Hash وتحويله لرابط Webtor من أي مصدر"""
-    # لمحرك Nyaa
     if hasattr(entry, 'nyaa_infohash'):
         return f"https://webtor.io/player/embed/{entry.nyaa_infohash}"
-    
-    # لمحرك TokyoTosho والروابط الأخرى (البحث عن الـ Hash داخل Magnet)
     link = getattr(entry, 'link', '')
     hash_match = re.search(r'btih:([a-fA-F0-9]{40})', link)
     if hash_match:
@@ -27,49 +49,40 @@ def get_clean_hash_link(entry):
     return None
 
 def start_bot():
-    database = {}
     scraper = cloudscraper.create_scraper()
-    print("🎬 جاري جلب الأنمي المترجم بجميع الجودات من Nyaa و TokyoTosho...")
+    db_file = get_current_db_file()
+    print(f"📂 الملف الحالي للعمل: {db_file}")
 
+    new_entries = []
     for rss_url in SOURCES:
         try:
-            # استخدام scraper لتجاوز حماية المواقع
             resp = scraper.get(rss_url, timeout=15)
             feed = feedparser.parse(resp.text)
-            
-            for entry in feed.entries[:40]:
-                name_en = entry.title
+            for entry in feed.entries[:25]:
                 streaming_link = get_clean_hash_link(entry)
-                
                 if streaming_link:
-                    # تصنيف الجودة بناءً على النص الموجود في العنوان
-                    if "1080p" in name_en:
-                        quality = "1080p (FHD) 💎"
-                    elif "720p" in name_en:
-                        quality = "720p (HD) ✅"
-                    elif "480p" in name_en:
-                        quality = "480p (SD) ⚡"
-                    else:
-                        quality = "جودة متنوعة"
-
-                    # إضافة الحلقة للقائمة (يمنع التكرار باستخدام اسم الحلقة كمفتاح)
-                    database[name_en] = {
-                        'name_ar': name_en,
-                        'name_en': name_en,
+                    final_name = clean_and_translate(entry.title)
+                    quality = "1080p (FHD)" if "1080p" in entry.title else "720p (HD)" if "720p" in entry.title else "480p (SD)"
+                    
+                    new_entries.append({
+                        'name_ar': final_name,
+                        'name_en': final_name,
                         'torrent_url': streaming_link,
                         'status': quality
-                    }
+                    })
         except Exception as e:
-            print(f"❌ خطأ في المصدر {rss_url}: {e}")
+            print(f"❌ خطأ: {e}")
 
-    # حفظ البيانات في ملف CSV
-    with open(DB_FILE, 'w', newline='', encoding='utf-8') as f:
+    # الكتابة بنظام Append (الإضافة) لعدم مسح الحلقات القديمة
+    file_exists = os.path.isfile(db_file)
+    with open(db_file, 'a', newline='', encoding='utf-8') as f:
         fieldnames = ['name_ar', 'name_en', 'torrent_url', 'status']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(database.values())
+        if not file_exists or os.stat(db_file).st_size == 0:
+            writer.writeheader()
+        writer.writerows(new_entries)
     
-    print(f"✅ تم التحديث بنجاح! تم العثور على {len(database)} حلقة مترجمة.")
+    print(f"✅ تم إضافة {len(new_entries)} حلقة جديدة إلى {db_file}")
 
 if __name__ == "__main__":
     start_bot()
