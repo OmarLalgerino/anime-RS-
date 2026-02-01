@@ -1,32 +1,28 @@
 name: Auto Update Channels
 on:
   schedule:
-    - cron: '0 */12 * * *' # يعمل مرتين يومياً
-  workflow_dispatch: # للتشغيل اليدوي
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions: # ضروري جداً لمنع فشل العملية (اللون الأحمر)
-      contents: write
+    permissions:
+      contents: write # هذا السطر يحل مشكلة اللون الأحمر في صورتك
     steps:
       - uses: actions/checkout@v3
-      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
-      - name: Install dependencies
+      - name: Install requests
         run: pip install requests
-
-      - name: Run Search and Test
+      - name: Run Update
         run: python update_links.py
-
-      - name: Commit and Push
+      - name: Push back
         run: |
-          git config --local user.name "AnimeRS-Bot"
-          git config --local user.email "bot@animers.com"
+          git config --local user.name "GitHub Action"
+          git config --local user.email "action@github.com"
           git add database.csv
-          git commit -m "تحديث الروابط الشغالة تلقائياً" || exit 0
+          git commit -m "Auto-update database" || exit 0
           git push
