@@ -1,36 +1,43 @@
 name: Auto Update Channels
 
 on:
-  workflow_dispatch: # للتشغيل اليدوي
+  workflow_dispatch: # للتشغيل اليدوي من المتصفح
   schedule:
-    - cron: '0 * * * *' # سيعمل كل ساعة بالضبط لضمان تحديث الروابط
+    - cron: '0 * * * *' # تحديث تلقائي كل ساعة
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # ضروري جداً للسماح للبوت بالكتابة في database.csv
+      contents: write # إعطاء صلاحية الكتابة للمستودع
+    
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4 # تحديث للإصدار الرابع الأسرع
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          pip install requests cloudscraper feedparser
+          python -m pip install --upgrade pip
+          pip install requests cloudscraper beautifulsoup4
 
       - name: Run The Beast
-        # تأكد أن ملف السكربت داخل المستودع اسمه: the_beast.py
+        # تأكد أن ملف السكربت في مستودعك بنفس هذا الاسم
         run: python the_beast.py 
 
-      - name: Commit and Push
+      - name: Commit and Push Changes
         run: |
-          git config --local user.name "GitHub Action"
-          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git config --local user.email "actions@github.com"
           git add database.csv
-          # لن يقوم بعمل Commit إذا لم يتغير شيء في الملف لتجنب الأخطاء
-          git commit -m "تحديث الروابط الرياضية وتدقيق الجودة" || exit 0
-          git push
+          # فحص إذا كان هناك تغيير فعلي قبل عمل الـ commit لتجنب الأخطاء
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "لا توجد تغييرات جديدة في الروابط."
+          else
+            git commit -m "🔄 تحديث تلقائي للروابط: $(date)"
+            git push
+          fi
