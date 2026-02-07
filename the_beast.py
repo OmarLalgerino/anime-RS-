@@ -2,96 +2,76 @@ import cloudscraper
 from bs4 import BeautifulSoup
 import csv
 import os
-import time
 
-# --- الإعدادات ---
+# الإعدادات الأساسية
 BASE_URL = "https://mycima.rip"
 DB_FILE = "database.csv"
-# استخدام cloudscraper لتجاوز حماية الموقع
 scraper = cloudscraper.create_scraper()
 
-def check_link(url):
-    """التأكد من أن الرابط لا يزال يعمل"""
-    try:
-        response = scraper.head(url, timeout=5)
-        return response.status_code == 200
-    except:
-        return False
-
-def get_movie_sources(movie_url):
-    """الدخول لصفحة الفيلم واستخراج روابط التحميل المباشرة"""
+def get_direct_video_link(movie_page_url):
+    """الدخول لصفحة الفيلم واستخراج رابط التحميل الحقيقي"""
     links = {"1080": "", "720": "", "480": ""}
     try:
-        res = scraper.get(movie_url)
+        # 1. الدخول لصفحة الفيلم
+        res = scraper.get(movie_page_url, timeout=15)
         soup = BeautifulSoup(res.content, 'html.parser')
         
-        # البحث عن أزرار التحميل (لأنها الأفضل للمشاهدة المباشرة)
-        download_btns = soup.select('a.download-item, a[href*="download"]')
+        # 2. البحث عن رابط صفحة التحميل (غالباً يكون زر كبير مكتوب عليه تحميل)
+        download_page_btn = soup.find('a', class_='btn-download') or soup.find('a', href=lambda x: x and 'download' in x)
         
-        for btn in download_btns:
-            text = btn.text.lower()
-            href = btn['href']
+        if download_page_btn:
+            download_url = download_page_btn['href']
+            # الدخول لصفحة الروابط المباشرة
+            res_dl = scraper.get(download_url, timeout=15)
+            dl_soup = BeautifulSoup(res_dl.content, 'html.parser')
             
-            if "1080" in text and not links["1080"]: links["1080"] = href
-            elif "720" in text and not links["720"]: links["720"] = href
-            elif "480" in text and not links["480"]: links["480"] = href
-            
+            # 3. استخراج الروابط التي تنتهي بصيغة فيديو أو تحتوي على كلمة direct
+            all_links = dl_soup.find_all('a', href=True)
+            for a in all_links:
+                href = a['href']
+                text = a.text.lower()
+                
+                # التأكد أن الرابط ليس مجرد رابط تصنيف (تجنب الروابط التي تنتهي بـ /)
+                if href.endswith('/') or "quality" in href:
+                    continue
+                
+                if "1080" in text: links["1080"] = href
+                elif "720" in text: links["720"] = href
+                elif "480" in text: links["480"] = href
+                
         return links
-    except Exception as e:
-        print(f"خطأ في استخراج الروابط: {e}")
+    except:
         return links
 
 def main():
-    # 1. قراءة البيانات الموجودة مسبقاً
-    existing_data = {}
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                existing_data[row['Name']] = row
-
-    # 2. جلب الأفلام من الصفحة الرئيسية أو صفحات الجودة
-    print("جاري فحص الموقع...")
+    print("بدء عملية الاستخراج العميق...")
     res = scraper.get(BASE_URL)
     soup = BeautifulSoup(res.content, 'html.parser')
     items = soup.select('.GridItem')
     
-    updated_rows = []
-
-    for item in items:
+    data_to_save = []
+    for item in items[:15]: # تجربة على أول 15 فيلم لضمان السرعة
         name = item.find('strong').text.strip()
-        movie_link = item.find('a')['href']
+        movie_url = item.find('a')['href']
         
-        # 3. منطق التحديث (الجديد والقديم)
-        if name in existing_data:
-            # إذا كان الفيلم موجوداً، نفحص إذا كان الرابط لا يزال يعمل
-            old_row = existing_data[name]
-            if check_link(old_row['URL_1080']):
-                print(f"الرابط لا يزال صالحاً: {name}")
-                updated_rows.append(old_row)
-                continue
-            else:
-                print(f"الرابط معطل، جاري التحديث: {name}")
-
-        # 4. جلب روابط جديدة (في حال كان جديداً أو قديماً معطلاً)
-        print(f"جلب بيانات: {name}")
-        sources = get_movie_sources(movie_link)
-        updated_rows.append({
+        print(f"جاري استخراج الرابط الحقيقي لـ: {name}")
+        sources = get_direct_video_link(movie_url)
+        
+        data_to_save.append({
             "Name": name,
             "URL_1080": sources["1080"],
             "URL_720": sources["720"],
             "URL_480": sources["480"],
-            "Status": "Active" if sources["1080"] else "Broken"
+            "Status": "Active" if sources["1080"] or sources["720"] else "Broken"
         })
-        time.sleep(1) # تأخير بسيط لتجنب الحظر
 
-    # 5. حفظ الجدول النهائي بتنسيق CSV
-    keys = ["Name", "URL_1080", "URL_720", "URL_480", "Status"]
+    # حفظ النتائج
     with open(DB_FILE, mode='w', encoding='utf-8', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
+        fieldnames = ["Name", "URL_1080", "URL_720", "URL_480", "Status"]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(updated_rows)
-    print("تم تحديث قاعدة البيانات بنجاح!")
+        writer.writerows(data_to_save)
+    print("تم التحديث بنجاح!")
 
 if __name__ == "__main__":
     main()
