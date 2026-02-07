@@ -1,22 +1,27 @@
 name: Beast Auto Update
 on:
   schedule:
-    - cron: '0 * * * *' # يعمل كل ساعة
-  workflow_dispatch: # للتشغيل اليدوي
+    - cron: '0 * * * *' # يعمل كل ساعة تلقائياً
+  workflow_dispatch: # يتيح لك التشغيل اليدوي للتجربة
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4 cloudscraper
+
       - name: Run Scraper
         run: python the_beast.py
+
       - name: Save Changes
         run: |
           git config --local user.email "bot@github.com"
